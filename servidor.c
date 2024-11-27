@@ -140,16 +140,20 @@ void subscribe_topic(const char *topic_name, const char *client_pipe, const char
                 topics[i].subscribers[topics[i].subscriber_count][USERNAME_LEN - 1] = '\0';
                 topics[i].subscriber_count++;
 
-                // Informar al usuario cuántos mensajes hay en el tópico
-                printf("Contador de mensajes: %d\n", message_count);
-                // Enviar los mensajes activos del tópico al usuario
+                // Almacenar los mensajes en una lista (buffer)
+                char all_messages[1024 * MAX_MESSAGES] = "";  // Suponiendo un límite de mensajes
                 for (int j = 0; j < message_count; j++) {
                     if (strcmp(messages[j].topic, topic_name) == 0 && messages[j].lifetime > 0) {
-                        // Enviar mensaje en el formato "<usuario> <mensaje>"
+                        // Concatenar el mensaje al buffer
                         char message_to_send[1024];
-                        snprintf(message_to_send, sizeof(message_to_send), "%s %s", messages[j].username, messages[j].message);
-                        send_response(client_pipe, message_to_send);
+                        snprintf(message_to_send, sizeof(message_to_send), "%s %s\n", messages[j].username, messages[j].message);
+                        strncat(all_messages, message_to_send, sizeof(all_messages) - strlen(all_messages) - 1);
                     }
+                }
+
+                // Enviar todos los mensajes de una vez
+                if (strlen(all_messages) > 0) {
+                    send_response(client_pipe, all_messages);
                 }
 
                 // Informar a los suscriptores actuales del tópico
@@ -182,14 +186,20 @@ void subscribe_topic(const char *topic_name, const char *client_pipe, const char
         // Enviar respuesta al cliente
         send_response(client_pipe, "Tópico creado y suscrito.");
 
-        // Enviar los mensajes activos del nuevo tópico (si los hay)
+        // Almacenar los mensajes en una lista (buffer)
+        char all_messages[1024 * MAX_MESSAGES] = "";  // Suponiendo un límite de mensajes
         for (int i = 0; i < message_count; i++) {
             if (strcmp(messages[i].topic, topic_name) == 0 && messages[i].lifetime > 0) {
-                // Enviar mensaje en el formato "<usuario> <mensaje>"
+                // Concatenar el mensaje al buffer
                 char message_to_send[1024];
-                snprintf(message_to_send, sizeof(message_to_send), "%s %s", messages[i].username, messages[i].message);
-                send_response(client_pipe, message_to_send);
+                snprintf(message_to_send, sizeof(message_to_send), "%s %s\n", messages[i].username, messages[i].message);
+                strncat(all_messages, message_to_send, sizeof(all_messages) - strlen(all_messages) - 1);
             }
+        }
+
+        // Enviar todos los mensajes de una vez
+        if (strlen(all_messages) > 0) {
+            send_response(client_pipe, all_messages);
         }
     } else {
         send_response(client_pipe, "Error: máximo de tópicos alcanzado.");
