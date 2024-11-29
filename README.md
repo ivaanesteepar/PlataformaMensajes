@@ -1,2 +1,2 @@
 # PlataformaMensajes
-Plataforma de mensajes del estilo cliente-servidor en C
+Plataforma de mensajes cliente-servidor en C
