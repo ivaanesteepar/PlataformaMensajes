@@ -74,7 +74,6 @@ void send_response(const char *client_pipe, const char *message) {
 
 // Función para cerrar todas las conexiones de clientes
 void close_all_connections() {
-    pthread_mutex_lock(&mutex); // Bloquear el mutex
     for (int i = 0; i < client_count; i++) {
         // Enviar la señal SIGTERM a cada cliente para finalizar su proceso
         if (clients[i].pid > 0) {
@@ -82,7 +81,6 @@ void close_all_connections() {
             printf("Se envió SIGTERM a %s (PID: %d)\n", clients[i].username, clients[i].pid);
         }
     }
-    pthread_mutex_unlock(&mutex); // Desbloquear el mutex
 }
 
 
@@ -501,7 +499,7 @@ void* manage_lifetime(void* arg) {
             perror("Error al abrir el archivo de mensajes para reescritura");
         }
     }
-    return NULL;
+    pthread_exit(NULL);
 }
 
 
@@ -599,6 +597,20 @@ void lock_topic(const char *topic_name) {
             if (!topics[i].is_locked) {
                 topics[i].is_locked = 1; // Bloquear el tópico
                 printf("Tópico '%s' bloqueado.\n", topic_name);
+
+                // Notificar a los suscriptores del bloqueo
+                char notification[256];
+                snprintf(notification, sizeof(notification), "El tópico '%s' ha sido bloqueado. No se pueden enviar mensajes temporalmente.", topic_name);
+
+                for (int j = 0; j < topics[i].subscriber_count; j++) {
+                    // Buscar al cliente correspondiente al suscriptor
+                    for (int k = 0; k < client_count; k++) {
+                        if (strcmp(clients[k].username, topics[i].subscribers[j]) == 0) {
+                            send_response(clients[k].client_pipe, notification);
+                            break;
+                        }
+                    }
+                }
             } else {
                 printf("El tópico '%s' ya está bloqueado.\n", topic_name);
             }
@@ -608,12 +620,27 @@ void lock_topic(const char *topic_name) {
     printf("No se encontró el tópico '%s' para bloquear.\n", topic_name);
 }
 
+
 void unlock_topic(const char* topic_name) {
     for (int i = 0; i < topic_count; i++) {
         if (strcmp(topics[i].name, topic_name) == 0) {
             if (topics[i].is_locked) { // Verificar si el tópico está bloqueado
                 topics[i].is_locked = 0;  // Desbloquear el tópico
                 printf("El tópico '%s' ha sido desbloqueado para el envío de mensajes.\n", topic_name);
+
+                // Notificar a los suscriptores del desbloqueo
+                char notification[256];
+                snprintf(notification, sizeof(notification), "El tópico '%s' ha sido desbloqueado. Ya puedes enviar mensajes.", topic_name);
+
+                for (int j = 0; j < topics[i].subscriber_count; j++) {
+                    // Buscar al cliente correspondiente al suscriptor
+                    for (int k = 0; k < client_count; k++) {
+                        if (strcmp(clients[k].username, topics[i].subscribers[j]) == 0) {
+                            send_response(clients[k].client_pipe, notification);
+                            break;
+                        }
+                    }
+                }
             } else {
                 printf("El tópico '%s' ya está desbloqueado.\n", topic_name);
             }
@@ -622,6 +649,7 @@ void unlock_topic(const char* topic_name) {
     }
     printf("Error: Tópico '%s' no encontrado.\n", topic_name);
 }
+
 
 void *command_sender(void *arg) {
     char input[256];
@@ -731,7 +759,6 @@ int main() {
                 close(fd);
                 continue; // Volver a intentar en el siguiente ciclo
             } else if (bytesRead == 0) {
-                //printf("El pipe del cliente se ha cerrado.\n");
                 close(fd); // USO ESTO PARA QUE NO SALGA DUPLICADO EL MENSAJE DE CONEXION DEL USUARIO
                 continue; // Volver a intentar en el siguiente ciclo
             }
@@ -824,6 +851,7 @@ int main() {
 
             pthread_mutex_unlock(&mutex); // Desbloquear el mutex después de acceder a recursos compartidos
         }
+        // Espera a que el hilo actual termine
         pthread_join(lifetime_thread, NULL);
         return 0;
 }
