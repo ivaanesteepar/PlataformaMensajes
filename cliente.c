@@ -13,23 +13,23 @@
 typedef struct {
     char client_pipe[256];
     int command_type;
-    char topic[256];
-    char username[256];
+    char topic[50];
+    char username[50];
     pid_t pid;
     int lifetime;
     char message[50];
-} CommandMessage;
+} Request;
 
-CommandMessage msg;
+Request msg;
 
 // Función para enviar un comando al servidor
-void send_command_to_server(CommandMessage *msg) {
+void send_command_to_server(Request *msg) {
     int fd = open(SERVER_PIPE, O_WRONLY);
     if (fd == -1) {
         perror("Error al abrir la pipe del servidor");
         exit(EXIT_FAILURE);
     }
-    write(fd, msg, sizeof(CommandMessage));
+    write(fd, msg, sizeof(Request));
     close(fd);
 }
 
@@ -183,4 +183,3 @@ int main(int argc, char *argv[]) {
     unlink(msg.client_pipe);
     return 0;
 }
-
