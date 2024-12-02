@@ -27,12 +27,12 @@ typedef struct {
 typedef struct {
     char client_pipe[256]; // Descriptor de archivo del pipe para comunicación con el cliente
     int command_type; // Tipo de comando
-    char topic[256];  // Campo para almacenar el nombre del tópico
-    char username[256]; // Nombre de usuario del cliente
+    char topic[50];  // Campo para almacenar el nombre del tópico
+    char username[50]; // Nombre de usuario del cliente
     pid_t pid; // PID del proceso del cliente
     int lifetime; // Lifetime restante
     char message[256]; // Mensaje que se envía
-} CommandMessage;
+} Response;
 
 typedef struct {
     char name[TOPIC_NAME_LEN]; // Nombre del tópico
@@ -47,7 +47,7 @@ typedef struct {
     char username[USERNAME_LEN]; // Nombre del usuario que envió el mensaje
     char message[TAM_MSG];  // El contenido del mensaje
     int lifetime; // Lifetime restante
-    CommandMessage msg;
+    Response msg;
 } StoredMessage;
 
 
@@ -138,13 +138,16 @@ void subscribe_topic(const char *topic_name, const char *client_pipe, const char
                 topics[i].subscribers[topics[i].subscriber_count][USERNAME_LEN - 1] = '\0';
                 topics[i].subscriber_count++;
 
+                // Imprimir mensaje en el servidor
+                printf("El usuario '%s' se ha suscrito al tópico '%s'.\n", username, topic_name);
+
                 // Almacenar los mensajes en una lista (buffer)
                 char all_messages[1024 * MAX_MESSAGES] = "";  // Suponiendo un límite de mensajes
                 for (int j = 0; j < message_count; j++) {
                     if (strcmp(messages[j].topic, topic_name) == 0 && messages[j].lifetime > 0) {
                         // Concatenar el mensaje al buffer
                         char message_to_send[1024];
-                        snprintf(message_to_send, sizeof(message_to_send), "%s %s\n", messages[j].username, messages[j].message);
+                        snprintf(message_to_send, sizeof(message_to_send), "%s %s %s\n", messages[j].topic, messages[j].username, messages[j].message);
                         strncat(all_messages, message_to_send, sizeof(all_messages) - strlen(all_messages) - 1);
                     }
                 }
@@ -179,6 +182,9 @@ void subscribe_topic(const char *topic_name, const char *client_pipe, const char
         strncpy(topics[topic_count].subscribers[0], username, USERNAME_LEN);
         topics[topic_count].subscriber_count++;
 
+        // Imprimir mensaje en el servidor
+        printf("El usuario '%s' ha creado y se ha suscrito al tópico '%s'.\n", username, topic_name);
+
         topic_count++;
 
         // Enviar respuesta al cliente
@@ -190,7 +196,7 @@ void subscribe_topic(const char *topic_name, const char *client_pipe, const char
             if (strcmp(messages[i].topic, topic_name) == 0 && messages[i].lifetime > 0) {
                 // Concatenar el mensaje al buffer
                 char message_to_send[1024];
-                snprintf(message_to_send, sizeof(message_to_send), "%s %s\n", messages[i].username, messages[i].message);
+                snprintf(message_to_send, sizeof(message_to_send), "%s %s %s\n", messages[i].topic ,messages[i].username, messages[i].message);
                 strncat(all_messages, message_to_send, sizeof(all_messages) - strlen(all_messages) - 1);
             }
         }
@@ -282,22 +288,40 @@ void list_connected_users() {
 }
 
 
-void send_message(CommandMessage* request) {
+void send_message(Response* request) {
     // Verificar si el tópico existe
-    if (!topic_exists(request->topic)) {
-        send_response(request->client_pipe, "El tópico no existe.");
-        return;
+    int topic_index = -1;
+    for (int i = 0; i < topic_count; i++) {
+        if (strcmp(topics[i].name, request->topic) == 0) {
+            topic_index = i;
+            break;
+        }
+    }
+
+    // Si el tópico no existe, crearlo
+    if (topic_index == -1) {
+        if (topic_count < MAX_TOPICS) {
+            // Inicializar el nuevo tópico
+            strncpy(topics[topic_count].name, request->topic, TOPIC_NAME_LEN);
+            topics[topic_count].name[TOPIC_NAME_LEN - 1] = '\0';
+            topics[topic_count].subscriber_count = 0; // Sin suscriptores iniciales
+            topics[topic_count].is_locked = 0;       // No bloqueado por defecto
+            topics[topic_count].has_active_messages = 0; // Sin mensajes activos inicialmente
+
+            topic_index = topic_count;
+            topic_count++;
+
+            printf("Tópico '%s' creado automáticamente.\n", request->topic);
+        } else {
+            send_response(request->client_pipe, "Error: No se pueden crear más tópicos, límite alcanzado.");
+            return;
+        }
     }
 
     // Verificar si el tópico está bloqueado
-    for (int i = 0; i < topic_count; i++) {
-        if (strcmp(topics[i].name, request->topic) == 0) {
-            if (topics[i].is_locked) {
-                send_response(request->client_pipe, "El tópico está bloqueado. No se puede enviar el mensaje.");
-                return;
-            }
-            break;
-        }
+    if (topics[topic_index].is_locked) {
+        send_response(request->client_pipe, "El tópico está bloqueado. No se puede enviar el mensaje.");
+        return;
     }
 
     // Verificar si el cuerpo del mensaje no excede los 300 caracteres
@@ -333,25 +357,30 @@ void send_message(CommandMessage* request) {
         messages[message_count].lifetime = request->lifetime; // Lifetime restante
         message_count++;
 
-        // Enviar el mensaje a los suscriptores
-        for (int j = 0; j < topic_count; j++) {
-            if (strcmp(topics[j].name, request->topic) == 0) {
-                for (int k = 0; k < topics[j].subscriber_count; k++) {
-                    // Evitar enviar el mensaje al cliente que lo envió
-                    if (strcmp(topics[j].subscribers[k], request->username) != 0) {
-                        // Obtener la pipe del cliente suscriptor
-                        send_response(clients[k].client_pipe, request->message);
+        // Marcar que el tópico ahora tiene mensajes activos
+        topics[topic_index].has_active_messages = 1;
+        // Enviar el mensaje a los suscriptores excepto al remitente
+        char formatted_message[1028]; // Espacio para el formato
+        snprintf(formatted_message, sizeof(formatted_message), "%s %s %d %s",
+         request->topic, request->username, request->lifetime, request->message);
+
+        // Enviar el mensaje a los suscriptores excepto al remitente
+        for (int i = 0; i < topics[topic_index].subscriber_count; i++) {
+            const char *subscriber_username = topics[topic_index].subscribers[i];
+            if (strcmp(subscriber_username, request->username) != 0) { // Evitar al remitente
+                for (int j = 0; j < client_count; j++) {
+                    if (strcmp(clients[j].username, subscriber_username) == 0) {
+                        send_response(clients[j].client_pipe, formatted_message);
                     }
                 }
-                break; // Salir del bucle una vez que se ha enviado el mensaje
             }
         }
 
-        // Guardar el mensaje en el archivo especificado por MSG_FICH si es persistente
+        // Guardar el mensaje en el archivo si es persistente
         if (request->lifetime > 0) {
             const char* msg_file = getenv("MSG_FICH");
             if (msg_file) {
-                FILE* file = fopen(msg_file, "a"); // Abrir en modo append
+                FILE* file = fopen(msg_file, "a");
                 if (file) {
                     fprintf(file, "%s %s %d %s\n",
                             request->topic, request->username, request->lifetime, request->message);
@@ -364,12 +393,16 @@ void send_message(CommandMessage* request) {
             }
         }
 
+        // Imprimir el mensaje en la consola
+        printf("Mensaje de %s enviado al tópico %s\n", request->username, request->topic);
+
         // Enviar una respuesta al cliente que envió el mensaje
         send_response(request->client_pipe, "Mensaje enviado con éxito.");
     } else {
         send_response(request->client_pipe, "Error: máximo de mensajes alcanzado.");
     }
 }
+
 
 
 // Función para cargar los mensajes cuyo lifetime sea mayor a 0 desde el archivo
@@ -518,6 +551,12 @@ void remove_client(const char *username) {
             }
             client_count--; // Reducir el contador de clientes
             printf("Cliente '%s' ha sido eliminado de la lista de conectados.\n", username);
+            char formatted_message[100];
+            snprintf(formatted_message, sizeof(formatted_message), "El cliente '%s' ha sido eliminado de la lista de conectados.\n", username);  
+            //notificarr a loss users conecctado
+            for (int i = 0; i < client_count; i++) {
+                send_response(clients[i].client_pipe, formatted_message);
+            }
             return;
         }
     }
@@ -717,35 +756,35 @@ void *command_sender(void *arg) {
 
 
 int main() {
-        CommandMessage msg;
-        load_messages();
+    Response msg;
+    load_messages();
 
-        // Configurar el manejador de señal para SIGINT
-        signal(SIGINT, handle_sigint);
+    // Configurar el manejador de señal para SIGINT
+    signal(SIGINT, handle_sigint);
 
-        if (access(SERVER_PIPE, F_OK) == 0){
-            printf("YA HAY UN SERVIDOR EN EJECUCIÓN\n");
-            exit(1);
-        }
+    if (access(SERVER_PIPE, F_OK) == 0){
+        printf("YA HAY UN SERVIDOR EN EJECUCIÓN\n");
+        exit(1);
+    }
 
-        // Crear la pipe del servidor
-        mkfifo(SERVER_PIPE, 0600);
+    // Crear la pipe del servidor
+    mkfifo(SERVER_PIPE, 0600);
 
-        pthread_t lifetime_thread;
-        // Iniciar el hilo para gestionar el lifetime de los mensajes
-        if (pthread_create(&lifetime_thread, NULL, manage_lifetime, NULL) != 0) {
-            perror("Error al crear el hilo de gestión de lifetime");
-            return 1;
-        }
+    pthread_t lifetime_thread;
+    // Iniciar el hilo para gestionar el lifetime de los mensajes
+    if (pthread_create(&lifetime_thread, NULL, manage_lifetime, NULL) != 0) {
+        perror("Error al crear el hilo de gestión de lifetime");
+        return 1;
+    }
 
-        // Crea un hilo para ejecutar los comandos ya que el hilo principal escucha los comandos del cliente
-        pthread_mutex_init(&mutex, NULL); // Inicializar el mutex
-        pthread_t command_thread;
-        pthread_create(&command_thread, NULL, command_sender, NULL); // Crear hilo para comandos
+    // Crea un hilo para ejecutar los comandos ya que el hilo principal escucha los comandos del cliente
+    pthread_mutex_init(&mutex, NULL); // Inicializar el mutex
+    pthread_t command_thread;
+    pthread_create(&command_thread, NULL, command_sender, NULL); // Crear hilo para comandos
 
-        printf("Esperando conexiones...\n");
+    printf("Esperando conexiones...\n");
 
-        while (1) {
+    while (1) {
             // Esperar por un mensaje del cliente
             int fd = open(SERVER_PIPE, O_RDONLY);
             if (fd == -1) {
@@ -753,7 +792,7 @@ int main() {
                 continue; // Volver a intentar en el siguiente ciclo
             }
 
-            ssize_t bytesRead = read(fd, &msg, sizeof(CommandMessage));
+            ssize_t bytesRead = read(fd, &msg, sizeof(Response));
             if (bytesRead < 0) {
                 perror("Error al leer el mensaje del cliente");
                 close(fd);
@@ -768,7 +807,7 @@ int main() {
 
             switch (msg.command_type) {
                 case 0: // Mensaje de conexión
-                    char res[50];
+                    char res[512];
                     if (client_count < MAX_USERS) {
                         int duplicate_found = 0; 
                         // Verificar si el nombre de usuario ya está en uso
