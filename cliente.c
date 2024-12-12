@@ -8,7 +8,7 @@ typedef struct {
     char username[50];
     pid_t pid;
     int lifetime;
-    char message[50];
+    char message[TAM_MSG];
 } Request;
 
 Request msg;
@@ -27,7 +27,7 @@ void send_command_to_server(Request *msg) {
 // Función para manejar la señal SIGINT (CTRL+C del cliente)
 void handle_sigint(int sig) {
     printf("\nSe recibió la señal SIGINT. Limpiando recursos...\n");
-    msg.command_type = 9;
+    msg.command_type = 6;
     send_command_to_server(&msg);
     unlink(msg.client_pipe);
     exit(0);
@@ -91,22 +91,33 @@ void handle_user_input() {
     } else if (strncmp(input, "msg ", 4) == 0) {
         char topic[20];
         int duration = 0;
-        char mensaje[MAX_MSG_LEN];
+        char mensaje[TAM_MSG];
 
+        // Leer el tópico y la duración, y luego el mensaje completo
         int args = sscanf(input + 4, "%s %d %[^\n]", topic, &duration, mensaje);
+
         if (args < 2 && args == 1) {
             strcpy(mensaje, input + 4 + strlen(topic) + 1);
         }
 
+        // Verificar que el mensaje no exceda el tamaño máximo
+        if (strlen(mensaje) >= TAM_MSG) {
+            printf("Error: El mensaje excede el límite de %d caracteres.\n", TAM_MSG - 1);
+            return;
+        }
+
+        // Copiar los datos a la estructura msg
         strcpy(msg.topic, topic);
         msg.lifetime = duration;
         strcpy(msg.message, mensaje);
         msg.command_type = 5;
 
+        // Enviar el comando al servidor
         send_command_to_server(&msg);
     } else {
         printf("Comando no reconocido. Intente de nuevo.\n");
     }
+
 }
 
 int main(int argc, char *argv[]) {
