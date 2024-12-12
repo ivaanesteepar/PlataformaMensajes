@@ -1,14 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <string.h>
-#include <signal.h>
-#include <sys/select.h>
-
-#define SERVER_PIPE "server_pipe"
-#define MAX_MSG_LEN 100
+#include "util.h"
 
 typedef struct {
     char client_pipe[256];
@@ -124,7 +114,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    // Configurar los manejadores de señal
+    // Llamada a los manejadores de señales
     setup_signal_handlers();
 
     // Asignamos el nombre de usuario y PID al mensaje
