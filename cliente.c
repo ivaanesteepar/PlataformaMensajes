@@ -63,7 +63,7 @@ void setup_signal_handlers() {
 
 // Función para procesar los comandos del usuario
 void handle_user_input() {
-    char input[256];
+    char input[512];
     fgets(input, sizeof(input), stdin);
     input[strcspn(input, "\n")] = 0;
 
@@ -89,27 +89,35 @@ void handle_user_input() {
         send_command_to_server(&msg);
 
     } else if (strncmp(input, "msg ", 4) == 0) {
-        char topic[20];
+        char topic[TOPIC_NAME_LEN];
         int duration = 0;
-        char mensaje[TAM_MSG];
+        char mensaje[TAM_MSG];  // Asegúrate de que TAM_MSG sea al menos 300
 
         // Leer el tópico y la duración, y luego el mensaje completo
         int args = sscanf(input + 4, "%s %d %[^\n]", topic, &duration, mensaje);
 
+        printf("La longitud del mensaje es: %zu\n", strlen(mensaje));
+
         if (args < 2 && args == 1) {
-            strcpy(mensaje, input + 4 + strlen(topic) + 1);
+            // Si no se pasan ambos parámetros (tópico y duración), el mensaje sigue
+            strncpy(mensaje, input + 4 + strlen(topic) + 1, TAM_MSG - 1);  // Limita el mensaje a TAM_MSG - 1 para el '\0'
+            mensaje[TAM_MSG - 1] = '\0';  // Asegura el fin de la cadena
         }
 
-        // Verificar que el mensaje no exceda el tamaño máximo
-        if (strlen(mensaje) >= TAM_MSG) {
-            printf("Error: El mensaje excede el límite de %d caracteres.\n", TAM_MSG - 1);
+        // Verificar que el mensaje no exceda el tamaño máximo (300 caracteres)
+        if (strlen(mensaje) > 300) {
+            printf("Error: El mensaje excede el límite de 300 caracteres.\n");
             return;
         }
 
         // Copiar los datos a la estructura msg
-        strcpy(msg.topic, topic);
+        strncpy(msg.topic, topic, sizeof(msg.topic) - 1);
+        msg.topic[sizeof(msg.topic) - 1] = '\0';  // Asegura el fin de la cadena
         msg.lifetime = duration;
-        strcpy(msg.message, mensaje);
+
+        strncpy(msg.message, mensaje, TAM_MSG - 1);
+        msg.message[TAM_MSG - 1] = '\0';  // Asegura el fin de la cadena
+
         msg.command_type = 5;
 
         // Enviar el comando al servidor
@@ -117,7 +125,6 @@ void handle_user_input() {
     } else {
         printf("Comando no reconocido. Intente de nuevo.\n");
     }
-
 }
 
 int main(int argc, char *argv[]) {
