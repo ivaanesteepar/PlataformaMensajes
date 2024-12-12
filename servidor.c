@@ -456,7 +456,7 @@ int load_messages() {
 }
 
 
-// Función que maneja la señal SIGURS1 (eliminación de hilos)
+// Función que maneja la señal SIGUSR1 (eliminación de hilos)
 void thread_signal_handler(int sig) {
     if (sig == SIGUSR1) {
         terminate_thread = 1;
@@ -697,10 +697,10 @@ void unlock_topic(const char* topic_name) {
 // Función para manejar el envío de comandos del manager
 void* command_sender(void* arg) {
     struct sigaction sa;
-    sa.sa_handler = thread_signal_handler; // Registrar el manejador de señales
+    sa.sa_handler = thread_signal_handler; // registrar el manejador de señales
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
-    sigaction(SIGUSR1, &sa, NULL);  // Asignar el manejador para SIGUSR1
+    sigaction(SIGUSR1, &sa, NULL);  // asignar el manejador para SIGUSR1
 
     char input[256];
     while (!terminate_thread) {     
@@ -773,8 +773,10 @@ int main() {
 
     // Configurar el manejador de señal para SIGINT
     signal(SIGINT, handle_sigint);
+    // Configurar el manejador de señal para SIGUSR1
     signal(SIGUSR1, thread_signal_handler);
 
+    // Comprobar que solo hay un manager en ejecución
     if (access(SERVER_PIPE, F_OK) == 0){
         printf("YA HAY UN SERVIDOR EN EJECUCIÓN\n");
         exit(1);
@@ -783,6 +785,9 @@ int main() {
     // Crear la pipe del servidor
     mkfifo(SERVER_PIPE, 0600);
 
+    // Inicializar el mutex
+    pthread_mutex_init(&mutex, NULL); 
+
     // Iniciar el hilo para gestionar el lifetime de los mensajes
     if (pthread_create(&lifetime_thread, NULL, manage_lifetime, NULL) != 0) {
         perror("Error al crear el hilo de gestión de lifetime");
@@ -790,9 +795,12 @@ int main() {
     }
 
     // Crea un hilo para ejecutar los comandos ya que el hilo principal escucha los comandos del cliente
-    pthread_mutex_init(&mutex, NULL); // Inicializar el mutex
-    pthread_create(&command_thread, NULL, command_sender, NULL); // Crear hilo para comandos
+    if (pthread_create(&command_thread, NULL, command_sender, NULL) != 0) {
+        perror("Error al crear el hilo de envío de comandos");
+        return 1;
+    }
 
+    // Texto inicial
     printf("Esperando conexiones...\n");
 
     while (!terminate_thread) {
@@ -802,22 +810,23 @@ int main() {
             perror("Error al abrir la pipe del servidor");
             continue; // Volver a intentar en el siguiente ciclo
         }
-
+        // Leer la solicitud del cliente
         ssize_t bytesRead = read(fd, &msg, sizeof(Response));
         if (bytesRead < 0) {
             perror("Error al leer el mensaje del cliente");
             close(fd);
             continue; // Volver a intentar en el siguiente ciclo
         } else if (bytesRead == 0) {
-            close(fd); // USO ESTO PARA QUE NO SALGA DUPLICADO EL MENSAJE DE CONEXION DEL USUARIO
+            close(fd); // Uso para evitar duplicar el mensaje de bienvenida
             continue; // Volver a intentar en el siguiente ciclo
         }
 
-        // Agregar lógica para manejar diferentes tipos de comandos
+        // Se bloquea el mutex
         pthread_mutex_lock(&mutex);
 
         switch (msg.command_type) {
-            case 0: // Mensaje de conexión
+            // Mensaje de conexión
+            case 0: 
                 char res[512];
                 if (client_count < MAX_USERS) {
                     int duplicate_found = 0; 
@@ -829,16 +838,16 @@ int main() {
                             sprintf(res, "ERR: Username '%s' is already in use.\n", msg.username);
                             send_response(msg.client_pipe, res);
                             sleep(1);
-                            kill(msg.pid, SIGTERM); // Cierra feed
+                            kill(msg.pid, SIGTERM); // cierra el nuevo cliente
                         }
                     }
 
                     // Si no se encuentra un duplicado, agregar al nuevo cliente
                     if (duplicate_found == 0) {
-                        if (msg.username[0] != '\0') { // Verificar que el nombre no esté vacío
+                        if (msg.username[0] != '\0') { // verificar que el nombre no esté vacío
                             sprintf(res, "Bienvenido, %s", msg.username);
                             send_response(msg.client_pipe, res);
-                            add_client(msg.client_pipe, msg.username, msg.pid); // Asegúrate de pasar correctamente los datos
+                            add_client(msg.client_pipe, msg.username, msg.pid);
                         } else {
                             printf("ERR: Invalid username.\n");
                             send_response(msg.client_pipe, "ERR: Invalid username.\n");
@@ -855,38 +864,36 @@ int main() {
                 }
             break;
 
-            case 1: // Crear tópico
+            // Manejo de la creación de un tópico
+            case 1: 
                 subscribe_topic(msg.topic, msg.client_pipe, msg.username);
                 break;
-                
-            case 2: // Listar tópicos
+
+            // Manejo de listar los topicos
+            case 2:
                 printf("Listar tópicos para el usuario '%s'.\n", msg.username);
                 list_topics(msg.client_pipe);
                 break;
-                
-            case 3: // Salir
+
+            // Manejo del comando exit del cliente
+            case 3:
                 printf("Cliente '%s' ha salido.\n", msg.username);
                 remove_client(msg.username);
                 break;
                 
-            case 4: // Desuscribirse del tópico
+            // Manejo de la desuscripcion de un cliente en un topico
+            case 4:
                 printf("Desuscribirse del tópico '%s' para el usuario '%s'.\n", msg.topic, msg.username);
                 unsubscribe_topic(msg.topic, msg.client_pipe, msg.username);
                 break;
 
-            case 5: // Enviar mensaje y guardarlo en un archivo de texto si es persistente
+            // Manejo del envío de un mensaje y almacenamiento en un archivo si es persistente
+            case 5:
                 send_message(&msg);
                 break;
 
+            // Manejo del CTRL+C del cliente
             case 6:
-                lock_topic(msg.topic);
-                break;
-
-            case 7:
-                unlock_topic(msg.topic);
-                break;
-
-            case 9: // CTRL+C del cliente
                 handle_ctrlc(msg.username);
                 break;
                 
@@ -899,7 +906,7 @@ int main() {
                 break;
         }
 
-        pthread_mutex_unlock(&mutex); // Desbloquear el mutex después de acceder a recursos compartidos
+        pthread_mutex_unlock(&mutex); // Desbloquear el mutex después de acceder a la sección crítica
     }
     return 0;
 }
