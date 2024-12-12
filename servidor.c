@@ -6,7 +6,7 @@ typedef struct {
     pid_t pid; // PID del proceso del cliente
 } Client;
 
-// STRUCT DE COMUNICACIÓN CON EL CLIENTE
+// Struct de comunicación con el cliente
 typedef struct {
     char client_pipe[256]; // Descriptor de archivo del pipe para comunicación con el cliente
     int command_type; // Tipo de comando
@@ -17,6 +17,7 @@ typedef struct {
     char message[256]; // Mensaje que se envía
 } Response;
 
+// Struct para la gestión de topicos
 typedef struct {
     char name[TOPIC_NAME_LEN]; // Nombre del tópico
     char subscribers[MAX_SUBSCRIBERS][USERNAME_LEN]; // Matriz para almacenar los nombres de usuarios suscritos a un tópico
@@ -25,6 +26,7 @@ typedef struct {
     int has_active_messages;  // Indicador de si el tópico tiene mensajes activos
 } Topic;
 
+// Struct para el almacenamiento de mensajes en el archivo
 typedef struct {
     char topic[TOPIC_NAME_LEN]; // Nombre del tópico al que pertenece el mensaje
     char username[USERNAME_LEN]; // Nombre del usuario que envió el mensaje
@@ -33,11 +35,11 @@ typedef struct {
     Response msg;
 } StoredMessage;
 
-//NEW
+// Creación de los hilos
 pthread_t lifetime_thread;
 pthread_t command_thread;
 
-Topic topics[MAX_TOPICS];
+Topic topics[MAX_TOPICS]; // Almacena los topicos creados
 Client clients[MAX_USERS]; // Almacena los usuarios conectados
 StoredMessage messages[MAX_MESSAGES]; // Almacena los mensajes de los topicos
 int topic_count = 0;
@@ -45,9 +47,8 @@ int client_count = 0;
 int message_count = 0;
 pthread_mutex_t mutex; // Declaración del mutex
 
-volatile sig_atomic_t terminate_thread = 0;
-
-
+// Flag para la eliminación de hilos
+int terminate_thread = 0;
 
 // Función para enviar un mensaje a un cliente
 void send_response(const char *client_pipe, const char *message) {
@@ -60,7 +61,7 @@ void send_response(const char *client_pipe, const char *message) {
     }
 }
 
-
+// Función para eliminar todos los usuarios conectados y cerrar el manager (close y CTRL+C del manager)
 void close_all_connections() {
     // Cerrar todas las conexiones de clientes
     for (int i = 0; i < client_count; i++) {
@@ -84,16 +85,15 @@ void close_all_connections() {
 
 
 
-// Manejar la señal SIGINT (CTRL+C) del programa
+// Función para manejar la señal SIGINT (CTRL+C) del programa
 void handle_sigint(int sig) {
     printf("\nServidor finalizado. Limpiando recursos...\n");
-    close_all_connections(); // Cerrar todas las conexiones de clientes
-
-    unlink(SERVER_PIPE); // Eliminar la pipe del servidor
-    exit(0); // Salir del programa
+    close_all_connections();
+    unlink(SERVER_PIPE);
+    exit(0); 
 }
 
-// AÑADE UN USUARIO A LA LISTA DE USUARIOS CONECTADOS
+// Función para añadir un usuario a la lista de usuarios conectados
 void add_client(const char *client_pipe, const char *username, pid_t pid) {
     // Verificar si el cliente ya está conectado
     for (int i = 0; i < client_count; i++) {
@@ -109,72 +109,36 @@ void add_client(const char *client_pipe, const char *username, pid_t pid) {
         strncpy(clients[client_count].username, username, USERNAME_LEN);
         clients[client_count].pid = pid;
         client_count++;
-        printf("Cliente agregado: %s (PID: %d, Pipe: %s)\n", username, pid, client_pipe); // Agregado Pipe en el log
+        printf("Cliente agregado: %s (PID: %d)\n", username, pid);
     } else {
         printf("No se puede agregar el cliente %s. Límite máximo de usuarios alcanzado.\n", username);
     }
 }
 
-
+// Función para suscribir un usuario a un topico y recibir los mensajes de ese topico
 void subscribe_topic(const char *topic_name, const char *client_pipe, const char *username) {
     if (strlen(topic_name) >= TOPIC_NAME_LEN) {
         send_response(client_pipe, "Error: El nombre del tópico excede el máximo de caracteres.");
         return;
     }
 
-    // Buscar el tópico en la lista de tópicos
+    // Comprobar si se ha alcanzado el límite de tópicos
+    if (topic_count >= MAX_TOPICS) {
+        send_response(client_pipe, "Error: máximo de tópicos alcanzado.");
+        return;
+    }
+
+    // Buscar si el tópico ya existe
+    int topic_index = -1;
     for (int i = 0; i < topic_count; i++) {
         if (strcmp(topics[i].name, topic_name) == 0) {
-            // Verificar si el usuario ya está suscrito
-            for (int j = 0; j < topics[i].subscriber_count; j++) {
-                if (strcmp(topics[i].subscribers[j], username) == 0) {
-                    send_response(client_pipe, "Ya estás suscrito al tópico.");
-                    return;
-                }
-            }
-
-            // Si el usuario no está suscrito, agregarlo
-            if (topics[i].subscriber_count < MAX_SUBSCRIBERS) {
-                strncpy(topics[i].subscribers[topics[i].subscriber_count], username, USERNAME_LEN);
-                topics[i].subscribers[topics[i].subscriber_count][USERNAME_LEN - 1] = '\0';
-                topics[i].subscriber_count++;
-
-                // Imprimir mensaje en el servidor
-                printf("El usuario '%s' se ha suscrito al tópico '%s'.\n", username, topic_name);
-
-                // Almacenar los mensajes en una lista (buffer)
-                char all_messages[1024 * MAX_MESSAGES] = "";  // Suponiendo un límite de mensajes
-                for (int j = 0; j < message_count; j++) {
-                    if (strcmp(messages[j].topic, topic_name) == 0 && messages[j].lifetime > 0) {
-                        // Concatenar el mensaje al buffer
-                        char message_to_send[1024];
-                        snprintf(message_to_send, sizeof(message_to_send), "%s %s %s\n", messages[j].topic, messages[j].username, messages[j].message);
-                        strncat(all_messages, message_to_send, sizeof(all_messages) - strlen(all_messages) - 1);
-                    }
-                }
-
-                // Enviar todos los mensajes de una vez
-                if (strlen(all_messages) > 0) {
-                    send_response(client_pipe, all_messages);
-                }
-
-                // Informar a los suscriptores actuales del tópico
-                printf("Usuarios suscritos al tópico '%s':\n", topic_name);
-                for (int j = 0; j < topics[i].subscriber_count; j++) {
-                    printf(" - %s\n", topics[i].subscribers[j]);
-                }
-
-                send_response(client_pipe, "Te has suscrito al tópico.");
-            } else {
-                send_response(client_pipe, "Error: máximo de suscriptores alcanzado.");
-            }
-            return;
+            topic_index = i;
+            break;
         }
     }
 
-    // Si el tópico no existe, crear uno nuevo
-    if (topic_count < MAX_TOPICS) {
-        // Crear un nuevo tópico y agregar al primer suscriptor
+    // Si no existe el topico, crear uno nuevo y agregar al primer suscriptor
+    if (topic_index == -1) {
         strncpy(topics[topic_count].name, topic_name, TOPIC_NAME_LEN);
         topics[topic_count].name[TOPIC_NAME_LEN - 1] = '\0';
         topics[topic_count].subscriber_count = 0;
@@ -191,40 +155,77 @@ void subscribe_topic(const char *topic_name, const char *client_pipe, const char
         // Enviar respuesta al cliente
         send_response(client_pipe, "Tópico creado y suscrito.");
 
-        // Almacenar los mensajes en una lista (buffer)
-        char all_messages[1024 * MAX_MESSAGES] = "";  // Suponiendo un límite de mensajes
-        for (int i = 0; i < message_count; i++) {
-            if (strcmp(messages[i].topic, topic_name) == 0 && messages[i].lifetime > 0) {
-                // Concatenar el mensaje al buffer
-                char message_to_send[1024];
-                snprintf(message_to_send, sizeof(message_to_send), "%s %s %s\n", messages[i].topic ,messages[i].username, messages[i].message);
-                strncat(all_messages, message_to_send, sizeof(all_messages) - strlen(all_messages) - 1);
-            }
-        }
-
-        // Enviar todos los mensajes de una vez
-        if (strlen(all_messages) > 0) {
-            send_response(client_pipe, all_messages);
-        }
-    } else {
-        send_response(client_pipe, "Error: máximo de tópicos alcanzado.");
     }
+    else{
+        // Buscar el tópico en la lista de tópicos
+        for (int i = 0; i < topic_count; i++) {
+            if (strcmp(topics[i].name, topic_name) == 0) {
+                // Verificar si el usuario ya está suscrito
+                for (int j = 0; j < topics[i].subscriber_count; j++) {
+                    if (strcmp(topics[i].subscribers[j], username) == 0) {
+                        send_response(client_pipe, "Ya estás suscrito al tópico.");
+                        return;
+                    }
+                }
+
+                // Si el usuario no está suscrito, agregarlo
+                if (topics[i].subscriber_count < MAX_SUBSCRIBERS) {
+                    strncpy(topics[i].subscribers[topics[i].subscriber_count], username, USERNAME_LEN);
+                    topics[i].subscribers[topics[i].subscriber_count][USERNAME_LEN - 1] = '\0';
+                    topics[i].subscriber_count++;
+
+                    // Imprimir mensaje en el servidor
+                    printf("El usuario '%s' se ha suscrito al tópico '%s'.\n", username, topic_name);
+
+                    // Almacenar los mensajes en una lista (buffer)
+                    char all_messages[1024 * MAX_MESSAGES];  // Suponiendo un límite de mensajes
+                    for (int j = 0; j < message_count; j++) {
+                        if (strcmp(messages[j].topic, topic_name) == 0 && messages[j].lifetime > 0) {
+                            // Concatenar el mensaje al buffer
+                            char message_to_send[1024];
+                            snprintf(message_to_send, sizeof(message_to_send), "%s %s %s\n", messages[j].topic, messages[j].username, messages[j].message);
+                            strncat(all_messages, message_to_send, sizeof(all_messages) - strlen(all_messages) - 1);
+                        }
+                    }
+
+                    // Enviar todos los mensajes de una vez
+                    if (strlen(all_messages) > 0) {
+                        send_response(client_pipe, all_messages);
+                    }
+
+                    // Informar a los suscriptores actuales del tópico
+                    printf("Usuarios suscritos al tópico '%s':\n", topic_name);
+                    for (int j = 0; j < topics[i].subscriber_count; j++) {
+                        printf(" - %s\n", topics[i].subscribers[j]);
+                    }
+
+                    send_response(client_pipe, "Te has suscrito al tópico.");
+                } else {
+                    send_response(client_pipe, "Error: máximo de suscriptores alcanzado.");
+                }
+                return;
+            }
+        } 
+
+    }
+ 
+        
 }
 
-
+// Función para desuscribir un usuario de un topico
 void unsubscribe_topic(const char *topic_name, const char *client_pipe, const char *username) {
-    // 1. Recorre todos los tópicos para encontrar el tópico al que el usuario desea desuscribirse
+    // Recorre todos los tópicos para encontrar el tópico al que el usuario desea desuscribirse
     for (int i = 0; i < topic_count; i++) {
-        // 2. Verifica si el nombre del tópico coincide con el tópico que el usuario quiere desuscribirse
+        // Verifica si el nombre del tópico coincide con el tópico que el usuario quiere desuscribirse
         if (strcmp(topics[i].name, topic_name) == 0) {
             
-            // 3. Recorre los suscriptores del tópico
+            // Recorre los suscriptores del tópico
             for (int j = 0; j < topics[i].subscriber_count; j++) {
                 
-                // 4. Verifica si el usuario está suscrito a este tópico
+                // Verifica si el usuario está suscrito a este tópico
                 if (strcmp(topics[i].subscribers[j], username) == 0) {
                     
-                    // 5. Si el usuario está suscrito, lo elimina de la lista de suscriptores del tópico
+                    // Si el usuario está suscrito, lo elimina de la lista de suscriptores del tópico
                     // Empezamos desde el índice del suscriptor y recorre los suscriptores detrás de él
                     for (int k = j; k < topics[i].subscriber_count - 1; k++) {
                         // Desplaza los suscriptores restantes una posición hacia atrás para sobrescribir al usuario eliminado
@@ -232,10 +233,10 @@ void unsubscribe_topic(const char *topic_name, const char *client_pipe, const ch
                         strncpy(topics[i].subscribers[k], topics[i].subscribers[k + 1], USERNAME_LEN);
                     }
                     
-                    // 6. Disminuye el contador de suscriptores para reflejar la eliminación
+                    // Disminuye el contador de suscriptores para reflejar la eliminación
                     topics[i].subscriber_count--;
                     
-                    // 7. Envia una respuesta al cliente confirmando que se desuscribió correctamente
+                    // Envia una respuesta al cliente confirmando que se desuscribió correctamente
                     send_response(client_pipe, "Te has desuscrito del tópico.");
                     return;
                 }
@@ -253,7 +254,7 @@ void unsubscribe_topic(const char *topic_name, const char *client_pipe, const ch
 
 
 
-// Función que lista los topicos
+// Función para listar los topicos
 void list_topics(const char *client_pipe) {
     char response[1024] = "Tópicos:\n";
     for (int i = 0; i < topic_count; i++) {
@@ -270,17 +271,17 @@ void list_topics(const char *client_pipe) {
 int topic_exists(const char *topic_name) {  
     for (int i = 0; i < topic_count; i++) {
         if (strcmp(topics[i].name, topic_name) == 0) {
-            return 1; // El tópico existe
+            return 1;
         }
     }
-    return 0; // El tópico no existe
+    return 0;
 }
 
-// Lista los usuarios conectados
+// Función para listar los usuarios conectados
 void list_connected_users() {
     if (client_count == 0) {
         printf("No hay usuarios conectados.\n");
-        return; // Salir de la función si no hay usuarios conectados
+        return;
     }
 
     for (int i = 0; i < client_count; i++) {
@@ -288,7 +289,7 @@ void list_connected_users() {
     }
 }
 
-
+// Función para enviar un mensaje a un topico
 void send_message(Response* request) {
     // Verificar si el tópico existe
     int topic_index = -1;
@@ -355,20 +356,20 @@ void send_message(Response* request) {
         strncpy(messages[message_count].topic, request->topic, sizeof(messages[message_count].topic) - 1);
         strncpy(messages[message_count].username, request->username, sizeof(messages[message_count].username) - 1);
         strncpy(messages[message_count].message, request->message, sizeof(messages[message_count].message) - 1);
-        messages[message_count].lifetime = request->lifetime; // Lifetime restante
+        messages[message_count].lifetime = request->lifetime; // lifetime restante
         message_count++;
 
         // Marcar que el tópico ahora tiene mensajes activos
         topics[topic_index].has_active_messages = 1;
         // Enviar el mensaje a los suscriptores excepto al remitente
-        char formatted_message[1028]; // Espacio para el formato
+        char formatted_message[1028]; // espacio para el formato
         snprintf(formatted_message, sizeof(formatted_message), "%s %s %s",
          request->topic, request->username, request->message);
 
         // Enviar el mensaje a los suscriptores excepto al remitente
         for (int i = 0; i < topics[topic_index].subscriber_count; i++) {
             const char *subscriber_username = topics[topic_index].subscribers[i];
-            if (strcmp(subscriber_username, request->username) != 0) { // Evitar al remitente
+            if (strcmp(subscriber_username, request->username) != 0) { // evitar al remitente
                 for (int j = 0; j < client_count; j++) {
                     if (strcmp(clients[j].username, subscriber_username) == 0) {
                         send_response(clients[j].client_pipe, formatted_message);
@@ -408,16 +409,16 @@ void send_message(Response* request) {
 
 // Función para cargar los mensajes cuyo lifetime sea mayor a 0 desde el archivo
 int load_messages() {
-    const char* msg_file = getenv("MSG_FICH"); // Obtener el archivo desde la variable de entorno
+    const char* msg_file = getenv("MSG_FICH"); // obtener el archivo desde la variable de entorno
     if (!msg_file) {
         perror("Variable de entorno MSG_FICH no configurada");
-        return 0; // Si no se puede obtener la variable de entorno, devolver 0
+        return 0;
     }
 
-    FILE* file = fopen(msg_file, "r"); // Abrir el archivo para lectura
+    FILE* file = fopen(msg_file, "r"); // abrir el archivo para lectura
     if (!file) {
         perror("Error al abrir el archivo de mensajes para lectura");
-        return 0; // Si no se puede abrir el archivo, devolver 0
+        return 0;
     }
 
     int loaded_count = 0;
@@ -433,7 +434,7 @@ int load_messages() {
             for (int i = 0; i < topic_count; i++) {
                 if (strcmp(topics[i].name, messages[loaded_count].topic) == 0) {
                     topic_exists = 1;
-                    topics[i].has_active_messages = 1; // Marcamos que el tópico tiene mensajes activos
+                    topics[i].has_active_messages = 1; // marcamos que el tópico tiene mensajes activos
                     break;
                 }
             }
@@ -442,44 +443,44 @@ int load_messages() {
             if (!topic_exists) {
                 // Añadir un nuevo tópico al arreglo
                 strcpy(topics[topic_count].name, messages[loaded_count].topic);
-                topics[topic_count].has_active_messages = 1; // Tópico con mensaje activo
+                topics[topic_count].has_active_messages = 1; // tópico con mensaje activo
                 topic_count++;
             }
 
-            loaded_count++; // Incrementar el contador si el mensaje es válido
+            loaded_count++; // incrementar el contador si el mensaje es válido
         }
     }
 
-    fclose(file); // Cerrar el archivo después de leer
-    return loaded_count; // Retornar el número de mensajes cargados
+    fclose(file); // cerrar el archivo después de leer
+    return loaded_count; // retornar el número de mensajes cargados
 }
 
 
-// NEW
+// Función que maneja la señal SIGURS1 (eliminación de hilos)
 void thread_signal_handler(int sig) {
     if (sig == SIGUSR1) {
         terminate_thread = 1;
     }
 }
 
-
+// Función para disminuir el lifetime de los mensajes cada segundo y almacenar solamente los mensajes persistentes en el archivo
 void* manage_lifetime(void* arg) {
     struct sigaction sa;
-    sa.sa_handler = thread_signal_handler;   // Registrar el manejador de señales
+    sa.sa_handler = thread_signal_handler;  // registrar el manejador de señales
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
-    sigaction(SIGUSR1, &sa, NULL);           // Asignar el manejador para SIGUSR1
+    sigaction(SIGUSR1, &sa, NULL);  // asignar el manejador para SIGUSR1
 
-    // Resto del código del hilo
-    message_count = load_messages();  // Cargar mensajes desde el archivo
+    // Cargar los mensajes si se reinicia el manager y había alguno ya en el archivo
+    message_count = load_messages(); // cargar mensajes desde el archivo
 
-    while (!terminate_thread) {  // Revisar la condición de terminación
-        sleep(1);  // Esperar 1 segundo para actualizar el archivo
+    while (!terminate_thread) {
+        sleep(1);  // esperar 1 segundo para actualizar el archivo
 
         // Decrementar el lifetime de los mensajes
         for (int i = 0; i < message_count; i++) {
             if (messages[i].lifetime > 0) {
-                messages[i].lifetime--;  // Decrementar el lifetime
+                messages[i].lifetime--;  // decrementar el lifetime
             }
         }
 
@@ -491,7 +492,7 @@ void* manage_lifetime(void* arg) {
                 new_message_count++;
             }
         }
-        message_count = new_message_count;  // Actualizar el contador de mensajes
+        message_count = new_message_count;  // actualizar el contador de mensajes
 
         // Comprobar si algún tópico tiene mensajes activos
         for (int i = 0; i < topic_count; i++) {
@@ -509,10 +510,10 @@ void* manage_lifetime(void* arg) {
         for (int i = 0; i < topic_count; i++) {
             if (!topics[i].has_active_messages && topics[i].subscriber_count == 0) {
                 for (int j = i; j < topic_count - 1; j++) {
-                    topics[j] = topics[j + 1];  // Desplazar los tópicos
+                    topics[j] = topics[j + 1];  // desplazar los tópicos
                 }
-                topic_count--;  // Reducir el contador de tópicos
-                i--;  // Ajustar el índice
+                topic_count--;  // reducir el contador de tópicos
+                i--;  // ajustar el índice
             }
         }
 
@@ -539,10 +540,10 @@ void* manage_lifetime(void* arg) {
             perror("Error al abrir el archivo de mensajes para reescritura");
         }
     }
-    pthread_exit(NULL); // Finaliza el hilo de manera ordenada
+    pthread_exit(NULL); // finaliza el hilo
 }
 
-
+// Función para eliminar un cliente de la sesión actual
 void remove_client(const char *username) {
     for (int i = 0; i < client_count; i++) {
         if (strcmp(clients[i].username, username) == 0) {
@@ -555,46 +556,46 @@ void remove_client(const char *username) {
             for (int j = i; j < client_count - 1; j++) {
                 clients[j] = clients[j + 1];
             }
-            client_count--; // Reducir el contador de clientes
+            client_count--; // reducir el contador de clientes
             printf("Cliente '%s' ha sido eliminado de la lista de conectados.\n", username);
             char formatted_message[100];
             snprintf(formatted_message, sizeof(formatted_message), "El  cliente '%s' ha sido eliminado de la lista de conectados.\n", username);  
-            //notificarr a loss users conecctado
+            // Notificar a los clientes conectados
             for (int i = 0; i < client_count; i++) {
                 send_response(clients[i].client_pipe, formatted_message);
             }
             return;
         }
     }
-    printf("Cliente '%s' no encontrado.\n", username); // Mensaje si el usuario no está conectado
+    printf("Cliente '%s' no encontrado.\n", username);
 }
 
-
+// Función para mostrar los mensajes de un topico
 void show_messages(const char *topic_name) {
     // Comprobar si el tópico existe
     if (!topic_exists(topic_name)) {
         printf("El tópico '%s' no existe.\n", topic_name);
-        return; // Salir de la función si el tópico no existe
+        return;
     }
 
-    int found_messages = 0; // Contador para verificar si hay mensajes
-    const char *msg_file = getenv("MSG_FICH");  // Obtener el nombre del archivo desde la variable de entorno
+    int found_messages = 0; // contador para verificar si hay mensajes
+    const char *msg_file = getenv("MSG_FICH");  // obtener el nombre del archivo desde la variable de entorno
 
     if (msg_file == NULL) {
         printf("La variable de entorno MSG_FICH no está configurada.\n");
         return;
     }
 
-    FILE *file = fopen(msg_file, "r");  // Abrir el archivo en modo lectura
+    FILE *file = fopen(msg_file, "r");  // abrir el archivo en modo lectura
     if (file == NULL) {
         perror("Error al abrir el archivo de mensajes");
         return;
     }
 
-    char line[512];  // Buffer para leer cada línea del archivo
+    char line[512];  // buffer para leer cada línea del archivo
     while (fgets(line, sizeof(line), file)) {
         StoredMessage msg;
-        // Leer los datos de la línea (suponiendo el formato "topic username lifetime message")
+        // Leer los datos de la línea
         int n = sscanf(line, "%255s %255s %d %300[^\n]", msg.topic, msg.username, &msg.lifetime, msg.message);
         if (n != 4) {
             continue;  // Si la línea no tiene el formato correcto, pasar a la siguiente
@@ -602,20 +603,20 @@ void show_messages(const char *topic_name) {
 
         // Comprobar si el mensaje pertenece al tópico dado
         if (strcmp(msg.topic, topic_name) == 0) {
-            found_messages = 1; // Se encontraron mensajes
-            printf("Usuario: %s, Mensaje: %s\n", msg.username, msg.message);  // Imprimir información del mensaje
+            found_messages = 1; // se encontraron mensajes
+            printf("Usuario: %s, Mensaje: %s\n", msg.username, msg.message);  // imprimir información del mensaje
         }
     }
 
     fclose(file);  // Cerrar el archivo
 
     if (!found_messages) {
-        printf("No hay mensajes en el tópico '%s'.\n", topic_name); // Imprimir si no hay mensajes
+        printf("No hay mensajes en el tópico '%s'.\n", topic_name);
     }
 }
 
 
-
+// Función para manejar el CTRL+C del cliente
 void handle_ctrlc(const char *username) {
     for (int i = 0; i < client_count; i++) {
         if (strcmp(clients[i].username, username) == 0) {
@@ -628,27 +629,26 @@ void handle_ctrlc(const char *username) {
             for (int j = i; j < client_count - 1; j++) {
                 clients[j] = clients[j + 1];
             }
-            client_count--; // Reducir el contador de clientes
+            client_count--; // reducir el contador de clientes
             printf("Cliente '%s' ha sido eliminado de la lista de conectados.\n", username);
             return;
         }
     }
-    printf("Cliente '%s' no encontrado.\n", username); // Mensaje si el usuario no está conectado
+    printf("Cliente '%s' no encontrado.\n", username);
 }
 
+// Función para bloquear el envío de mensajes en un topico
 void lock_topic(const char *topic_name) {
     for (int i = 0; i < topic_count; i++) {
         if (strcmp(topics[i].name, topic_name) == 0) {
             if (!topics[i].is_locked) {
-                topics[i].is_locked = 1; // Bloquear el tópico
+                topics[i].is_locked = 1; // bloquear el tópico
                 printf("Tópico '%s' bloqueado.\n", topic_name);
 
                 // Notificar a los suscriptores del bloqueo
                 char notification[256];
                 snprintf(notification, sizeof(notification), "El tópico '%s' ha sido bloqueado. No se pueden enviar mensajes temporalmente.", topic_name);
-
                 for (int j = 0; j < topics[i].subscriber_count; j++) {
-                    // Buscar al cliente correspondiente al suscriptor
                     for (int k = 0; k < client_count; k++) {
                         if (strcmp(clients[k].username, topics[i].subscribers[j]) == 0) {
                             send_response(clients[k].client_pipe, notification);
@@ -665,20 +665,18 @@ void lock_topic(const char *topic_name) {
     printf("No se encontró el tópico '%s' para bloquear.\n", topic_name);
 }
 
-
+// Función para bloquear el envío de mensajes en un topico
 void unlock_topic(const char* topic_name) {
     for (int i = 0; i < topic_count; i++) {
         if (strcmp(topics[i].name, topic_name) == 0) {
-            if (topics[i].is_locked) { // Verificar si el tópico está bloqueado
-                topics[i].is_locked = 0;  // Desbloquear el tópico
+            if (topics[i].is_locked) {
+                topics[i].is_locked = 0;  // desbloquear el tópico
                 printf("El tópico '%s' ha sido desbloqueado para el envío de mensajes.\n", topic_name);
 
                 // Notificar a los suscriptores del desbloqueo
                 char notification[256];
                 snprintf(notification, sizeof(notification), "El tópico '%s' ha sido desbloqueado. Ya puedes enviar mensajes.", topic_name);
-
                 for (int j = 0; j < topics[i].subscriber_count; j++) {
-                    // Buscar al cliente correspondiente al suscriptor
                     for (int k = 0; k < client_count; k++) {
                         if (strcmp(clients[k].username, topics[i].subscribers[j]) == 0) {
                             send_response(clients[k].client_pipe, notification);
@@ -696,13 +694,13 @@ void unlock_topic(const char* topic_name) {
 }
 
 
-
+// Función para manejar el envío de comandos del manager
 void* command_sender(void* arg) {
     struct sigaction sa;
-    sa.sa_handler = thread_signal_handler;   // Registrar el manejador de señales
+    sa.sa_handler = thread_signal_handler; // Registrar el manejador de señales
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;                         // Reinicia funciones bloqueantes
-    sigaction(SIGUSR1, &sa, NULL);           // Asignar el manejador para SIGUSR1
+    sa.sa_flags = 0;
+    sigaction(SIGUSR1, &sa, NULL);  // Asignar el manejador para SIGUSR1
 
     char input[256];
     while (!terminate_thread) {     
@@ -713,8 +711,9 @@ void* command_sender(void* arg) {
             }  
             continue;
         }
-        input[strcspn(input, "\n")] = 0; // Eliminar salto de línea
+        input[strcspn(input, "\n")] = 0; // eliminar salto de línea para que se pueda procesar bien el comando
 
+        // Comando remove <user>
         if (strncmp(input, "remove ", 7) == 0) {
             char username[USERNAME_LEN];
             sscanf(input + 7, "%s", username);
@@ -722,17 +721,20 @@ void* command_sender(void* arg) {
             remove_client(username); // Eliminar cliente
             pthread_mutex_unlock(&mutex);
         }
+        // Comando close
         else if (strcmp(input, "close") == 0) {
-            close_all_connections(); // Cerrar todas las conexiones
-            unlink(SERVER_PIPE); // Limpiar la pipe
-            exit(0); // Terminar el servidor
+            close_all_connections(); 
+            unlink(SERVER_PIPE); 
+            exit(0); 
         }
+        // Comando users
         else if (strcmp(input, "users") == 0) {
             pthread_mutex_lock(&mutex);
             printf("Lista de usuarios conectados:\n");
             list_connected_users();
             pthread_mutex_unlock(&mutex);
         }
+        // Comando topics
         else if (strcmp(input, "topics") == 0) {
             pthread_mutex_lock(&mutex);
             printf("Tópicos:\n");
@@ -741,11 +743,27 @@ void* command_sender(void* arg) {
             }
             pthread_mutex_unlock(&mutex);
         }
+        // Comando lock <topic>
+        else if (strncmp(input, "lock ", 5) == 0){
+            char topic[TOPIC_NAME_LEN];
+            sscanf(input + 5, "%s", topic);
+            pthread_mutex_lock(&mutex);
+            lock_topic(topic);
+            pthread_mutex_unlock(&mutex);
+        }
+        // Comando unlock <topic>
+        else if (strncmp(input, "unlock ", 7) == 0){
+            char topic[TOPIC_NAME_LEN];
+            sscanf(input + 7, "%s", topic);
+            pthread_mutex_lock(&mutex);
+            unlock_topic(topic);
+            pthread_mutex_unlock(&mutex);
+        }
         else {
             printf("Comando desconocido: %s\n", input);
         }
     }
-    pthread_exit(NULL); // Terminar el hilo
+    pthread_exit(NULL); // terminar el hilo
 }
 
 
