@@ -1,5 +1,6 @@
 #include "util.h"
 
+// Struct de comunicación con el manager
 typedef struct {
     char client_pipe[256];
     int command_type;
