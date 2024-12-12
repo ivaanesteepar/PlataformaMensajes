@@ -167,7 +167,7 @@ int main(int argc, char *argv[]) {
             ssize_t bytes_read = read(client_fd, response, sizeof(response) - 1);
             if (bytes_read > 0) {
                 response[bytes_read] = '\0'; // la cadena debe acabarse con el caracter nulo
-                printf("Respuesta del servidor: %s\n", response);
+                printf("%s\n", response);
             }
         }
     }
