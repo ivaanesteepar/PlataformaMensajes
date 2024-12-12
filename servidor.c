@@ -883,6 +883,5 @@ int main() {
 
         pthread_mutex_unlock(&mutex); // Desbloquear el mutex después de acceder a recursos compartidos
     }
-    printf("pruebaMain\n");
     return 0;
 }
