@@ -148,7 +148,6 @@ int main(int argc, char *argv[]) {
     // Comando para inicio de sesión (0)
     msg.command_type = 0; 
     send_command_to_server(&msg);
-    printf("Mensaje enviado al servidor: %s\n", msg.username);
 
     // Creamos el pipe del cliente
     int client_fd = open(msg.client_pipe, O_RDONLY | O_NONBLOCK);
