@@ -1,5 +1,6 @@
 #include "util.h"
 
+// Struct de almacenamiento de usuarios
 typedef struct {
     char client_pipe[256]; // Descriptor de archivo del pipe para comunicación con el cliente
     char username[USERNAME_LEN]; // Nombre de usuario del cliente
