@@ -14,7 +14,7 @@ typedef struct {
     char username[50]; // Nombre de usuario del cliente
     pid_t pid; // PID del proceso del cliente
     int lifetime; // Lifetime restante
-    char message[256]; // Mensaje que se envía
+    char message[TAM_MSG]; // Mensaje que se envía
 } Response;
 
 // Struct para la gestión de topicos
@@ -253,18 +253,28 @@ void unsubscribe_topic(const char *topic_name, const char *client_pipe, const ch
 }
 
 
-
 // Función para listar los topicos
 void list_topics(const char *client_pipe) {
     char response[1024] = "Tópicos:\n";
-    for (int i = 0; i < topic_count; i++) {
-        char topic_info[100];
-        snprintf(topic_info, sizeof(topic_info), "- %s (Suscriptores: %d)\n", topics[i].name, topics[i].subscriber_count);
-        strcat(response, topic_info);
+
+    if (topic_count == 0) {
+        // Concatenar "No hay tópicos para listar." a response
+        strcat(response, "No hay tópicos para listar.\n");
+        printf("No hay tópicos para listar.\n");
+    } else {
+        // Construir la lista de tópicos
+        for (int i = 0; i < topic_count; i++) {
+            char topic_info[100];
+            snprintf(topic_info, sizeof(topic_info), "- %s (Suscriptores: %d)\n", topics[i].name, topics[i].subscriber_count);
+            strcat(response, topic_info);
+        }
+        printf("Se listaron %d tópicos.\n", topic_count);
     }
-    printf("Se listaron %d tópicos.\n", topic_count);
+
+    // Enviar la respuesta completa usando response
     send_response(client_pipe, response);
 }
+
 
 
 // Función para verificar si un tópico existe
@@ -326,11 +336,6 @@ void send_message(Response* request) {
         return;
     }
 
-    // Verificar si el cuerpo del mensaje no excede los 300 caracteres
-    if (strlen(request->message) > TAM_MSG) {
-        send_response(request->client_pipe, "Error: El mensaje excede el límite de 300 caracteres.");
-        return;
-    }
 
     // Si el mensaje es persistente, verificar el número de mensajes persistentes en el tópico
     if (request->lifetime > 0) {
@@ -471,7 +476,7 @@ void* manage_lifetime(void* arg) {
     sa.sa_flags = 0;
     sigaction(SIGUSR1, &sa, NULL);  // asignar el manejador para SIGUSR1
 
-    // Cargar los mensajes si se reinicia el manager y había alguno ya en el archivo
+    // Cargar los mensajes si se reinicia el manager y había alguno en el archivo
     message_count = load_messages(); // cargar mensajes desde el archivo
 
     while (!terminate_thread) {
@@ -738,8 +743,13 @@ void* command_sender(void* arg) {
         else if (strcmp(input, "topics") == 0) {
             pthread_mutex_lock(&mutex);
             printf("Tópicos:\n");
-            for (int i = 0; i < topic_count; i++) {
+            if (topic_count == 0) {
+                printf("No se encontraron tópicos para listar.\n");
+            }
+            else{
+                for (int i = 0; i < topic_count; i++) {
                 printf(" - %s (Suscriptores: %d)\n", topics[i].name, topics[i].subscriber_count);
+                }
             }
             pthread_mutex_unlock(&mutex);
         }
@@ -769,6 +779,15 @@ void* command_sender(void* arg) {
 
 int main() {
     Response msg;
+    const char *MSG_FICH = "MSG_FICH";  // Declarar MSG_FICH como una cadena
+    const char *file_name = "mensajes.txt";
+    
+    // Usar setenv para establecer la variable de entorno
+    if (setenv(MSG_FICH, file_name, 1) != 0) {
+        perror("Error al establecer la variable de entorno");
+        return 1;
+    }
+    // Cargar los mensajes del fichero del manager anterior
     load_messages();
 
     // Configurar el manejador de señal para SIGINT
