@@ -96,8 +96,6 @@ void handle_user_input() {
         // Leer el tópico y la duración, y luego el mensaje completo
         int args = sscanf(input + 4, "%s %d %[^\n]", topic, &duration, mensaje);
 
-        printf("La longitud del mensaje es: %zu\n", strlen(mensaje));
-
         if (args < 2 && args == 1) {
             // Si no se pasan ambos parámetros (tópico y duración), el mensaje sigue
             strncpy(mensaje, input + 4 + strlen(topic) + 1, TAM_MSG - 1);  // Limita el mensaje a TAM_MSG - 1 para el '\0'
@@ -131,6 +129,11 @@ int main(int argc, char *argv[]) {
     if (argc < 2) {
         fprintf(stderr, "Uso: %s <usuario>\n", argv[0]);
         return EXIT_FAILURE;
+    }
+    // Comprobar que solo ya está en ejecución el manager
+    if (!access(SERVER_PIPE, F_OK) == 0){
+        printf("No está el activo el servidor.\n");
+        exit(1);
     }
 
     // Llamada a la función que configura los manejadores de señales
