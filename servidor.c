@@ -36,7 +36,7 @@ typedef struct {
     Response msg;
 } StoredMessage;
 
-// Creación de los hilos
+// Declaración de los hilos
 pthread_t lifetime_thread;
 pthread_t command_thread;
 
@@ -48,7 +48,7 @@ int client_count = 0;
 int message_count = 0;
 pthread_mutex_t mutex; // Declaración del mutex
 
-// Flag para la eliminación de hilos
+// Flag para la terminación de hilos
 int terminate_thread = 0;
 
 // Función para enviar un mensaje a un cliente
@@ -85,7 +85,6 @@ void close_all_connections() {
 }
 
 
-
 // Función para manejar la señal SIGINT (CTRL+C) del programa
 void handle_sigint(int sig) {
     printf("\nServidor finalizado. Limpiando recursos...\n");
@@ -93,6 +92,7 @@ void handle_sigint(int sig) {
     unlink(SERVER_PIPE);
     exit(0); 
 }
+
 
 // Función para añadir un usuario a la lista de usuarios conectados
 void add_client(const char *client_pipe, const char *username, pid_t pid) {
@@ -207,10 +207,7 @@ void subscribe_topic(const char *topic_name, const char *client_pipe, const char
                 return;
             }
         } 
-
     }
- 
-        
 }
 
 // Función para desuscribir un usuario de un topico
@@ -275,7 +272,6 @@ void list_topics(const char *client_pipe) {
     // Enviar la respuesta completa usando response
     send_response(client_pipe, response);
 }
-
 
 
 // Función para verificar si un tópico existe
@@ -754,6 +750,14 @@ void* command_sender(void* arg) {
             }
             pthread_mutex_unlock(&mutex);
         }
+        // Comando show <topic>
+        else if (strncmp(input, "show ", 5) == 0){
+            char topic[TOPIC_NAME_LEN];
+            sscanf(input + 5, "%s", topic);
+            pthread_mutex_lock(&mutex);
+            show_messages(topic);
+            pthread_mutex_unlock(&mutex);
+        }
         // Comando lock <topic>
         else if (strncmp(input, "lock ", 5) == 0){
             char topic[TOPIC_NAME_LEN];
@@ -780,6 +784,7 @@ void* command_sender(void* arg) {
 
 int main() {
     Response msg;
+    
     const char *MSG_FICH = "MSG_FICH";  // Declarar MSG_FICH como una cadena
     const char *file_name = "mensajes.txt";
     
@@ -788,6 +793,7 @@ int main() {
         perror("Error al establecer la variable de entorno");
         return 1;
     }
+    
     // Cargar los mensajes del fichero del manager anterior
     load_messages();
 
@@ -903,7 +909,7 @@ int main() {
                 
             // Manejo de la desuscripcion de un cliente en un topico
             case 4:
-                printf("Desuscribirse del tópico '%s' para el usuario '%s'.\n", msg.topic, msg.username);
+                printf("El usuario '%s'se ha desuscrito del tópico '%s'\n", msg.username, msg.topic);
                 unsubscribe_topic(msg.topic, msg.client_pipe, msg.username);
                 break;
 
