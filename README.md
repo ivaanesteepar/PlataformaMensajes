@@ -5,11 +5,9 @@
 Para generar los archivos de la plataforma y limpiar los existentes, puedes usar los siguientes comandos:
 
 1. **Limpiar los archivos generados anteriormente**  
-   Comando:  
    ```bash
    make clean
-2. **Generar los archivos nuevamente**  
-   Comando:  
+2. **Generar los archivos nuevamente**   
    ```bash
    make
    
