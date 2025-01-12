@@ -12,7 +12,6 @@ Para generar los archivos de la plataforma y limpiar los existentes, puedes usar
    Comando:
    ```bash
    make
-
    
 ## Funcionalidades
 
