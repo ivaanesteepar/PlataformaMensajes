@@ -33,11 +33,11 @@ Para generar los archivos de la plataforma y limpiar los existentes, puedes usar
 
 5. **Bloquear un tema**  
    Comando: `lock <tema>`  
-   Bloquea el envío de nuevos mensajes al tema indicado.
+   Bloquea el envío de nuevos mensajes en un determinado tema.
 
 6. **Desbloquear un tema**  
    Comando: `unlock <tema>`  
-   Permite nuevamente el envío de mensajes al tema bloqueado.
+   Permite nuevamente el envío de mensajes en un tema que estaba bloqueado.
 
 7. **Cerrar la plataforma**  
    Comando: `close`  
@@ -47,11 +47,11 @@ Para generar los archivos de la plataforma y limpiar los existentes, puedes usar
 
 1. **Obtener una lista de todos los temas**  
    Comando: `topics`  
-   Muestra el nombre de los temas existentes, el número de mensajes persistentes en cada uno y su estado (bloqueado/desbloqueado).
+   Muestra el nombre de los temas existentes y el número de mensajes persistentes en cada uno.
 
 2. **Enviar un mensaje a un tema específico**  
    Comando: `msg <tema> <duración> <mensaje>`  
-   Permite a un cliente el envío de mensajes en temas. No hace falta estar suscrito para ejecutar el comando.
+   Permite a un cliente enviar mensajes a un tema determinado. No hace falta estar suscrito a ese tema para poder enviar un mensaje.
 
 3. **Suscribirse a un tema**  
    Comando: `subscribe <tema>`  
